@@ -90,7 +90,7 @@ class MySQLDatabase:
                 session.rollback()
                 raise MySQLAPIAddError(f"Failed to add data to {model_cls.__name__}: {e}") from e
 
-    def query_data(self, model_cls, **filters):
+    def query_data(self, model_cls, **filters: Dict[str, Union[int, str, float]]):
         """查询指定模型的数据.
 
         Args:

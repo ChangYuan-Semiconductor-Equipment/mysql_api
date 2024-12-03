@@ -81,7 +81,7 @@ class MySQLDatabase:
         """
         with self.session() as session:
             try:
-                if instances := self.query_data(model_cls, **{key: key_value}):
+                if instances := self.query_data_all(model_cls, **{key: key_value}):
                     for instance in instances:
                         for field, value in update_values.items():
                             setattr(instance, field, value)
@@ -90,7 +90,7 @@ class MySQLDatabase:
                 session.rollback()
                 raise MySQLAPIAddError(f"Failed to add data to {model_cls.__name__}: {e}") from e
 
-    def query_data(self, model_cls, **filters: Dict[str, Union[int, str, float]]):
+    def query_data_all(self, model_cls, **filters) -> list:
         """查询指定模型的数据.
 
         Args:
@@ -106,5 +106,24 @@ class MySQLDatabase:
         with self.session() as session:
             try:
                 return session.query(model_cls).filter_by(**filters).all()
+            except DatabaseError as e:
+                raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
+
+    def query_data_one(self, model_cls, **filters):
+        """查询指定模型的一条数据.
+
+        Args:
+            model_cls: SQLAlchemy 模型类.
+            filters: 查询条件，以关键字参数传入.
+
+        Returns:
+            list: 查询结果列表.
+
+        Raises:
+            MySQLAPIQueryError: 查询失败抛出异常.
+        """
+        with self.session() as session:
+            try:
+                return session.query(model_cls).filter_by(**filters).first()
             except DatabaseError as e:
                 raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e

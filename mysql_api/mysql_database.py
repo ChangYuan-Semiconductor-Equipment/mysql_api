@@ -127,3 +127,25 @@ class MySQLDatabase:
                 return session.query(model_cls).filter_by(**filters).first()
             except DatabaseError as e:
                 raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
+
+    def query_data_page(self, model_cls, page=1, page_size=10, **filters):
+        """查询指定模型的多条数据，并支持分页.
+
+        Args:
+            model_cls: SQLAlchemy 模型类.
+            page: 当前页码, 默认为 1.
+            page_size: 每页记录数, 默认为 10.
+            filters: 查询条件，以关键字参数传入.
+
+        Returns:
+            list: 查询结果列表.
+
+        Raises:
+            MySQLAPIQueryError: 查询失败抛出异常.
+        """
+        with self.session() as session:
+            try:
+                offset_value = (page - 1) * page_size
+                return session.query(model_cls).filter_by(**filters).limit(page_size).offset(offset_value).all()
+            except DatabaseError as e:
+                raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e

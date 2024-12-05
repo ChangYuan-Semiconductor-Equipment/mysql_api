@@ -81,11 +81,9 @@ class MySQLDatabase:
         """
         with self.session() as session:
             try:
-                if instances := self.query_data_all(model_cls, **{key: key_value}):
-                    for instance in instances:
-                        for field, value in update_values.items():
-                            setattr(instance, field, value)
-                        session.commit()
+                if instances := session.query(model_cls).filter_by(**{key: key_value}):
+                    instances.update(update_values)
+                    session.commit()
             except DatabaseError as e:
                 session.rollback()
                 raise MySQLAPIAddError(f"Failed to add data to {model_cls.__name__}: {e}") from e

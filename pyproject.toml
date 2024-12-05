@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "mysql-api"
-version = "0.1.2"
+version = "0.1.3"
 description = "封装mysql操作"
 authors = ["LiuWei <183074632@qq.com>"]
 readme = "README.md"

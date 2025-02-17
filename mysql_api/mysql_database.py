@@ -7,7 +7,7 @@ from sqlalchemy.exc import DatabaseError
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
-from mysql_api.exception import MySQLAPIAddError, MySQLAPIQueryError
+from mysql_api.exception import MySQLAPIAddError, MySQLAPIQueryError, MySQLAPIDeleteError
 
 
 # pylint: disable=R0913, R0917
@@ -147,3 +147,20 @@ class MySQLDatabase:
                 return session.query(model_cls).filter_by(**filters).limit(page_size).offset(offset_value).all()
             except DatabaseError as e:
                 raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
+
+    def delete_all_data(self, model_cls):
+        """删除指定模型的所有数据.
+
+        Args:
+            model_cls: SQLAlchemy 模型类.
+
+        Raises:
+            MySQLAPIQueryError: 删除失败抛出异常.
+        """
+        with self.session() as session:
+            try:
+                session.query(model_cls).delete()
+                session.commit()
+            except DatabaseError as e:
+                session.rollback()
+                raise MySQLAPIDeleteError(f"Failed to delete data from {model_cls.__name__}: {e}") from e

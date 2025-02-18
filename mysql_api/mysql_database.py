@@ -115,7 +115,7 @@ class MySQLDatabase:
             filters: 查询条件，以关键字参数传入.
 
         Returns:
-            list: 查询结果列表.
+            模型类实例或None: 查询结果，如果未找到数据则返回None.
 
         Raises:
             MySQLAPIQueryError: 查询失败抛出异常.

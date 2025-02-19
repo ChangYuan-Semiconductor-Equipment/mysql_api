@@ -164,3 +164,23 @@ class MySQLDatabase:
             except DatabaseError as e:
                 session.rollback()
                 raise MySQLAPIDeleteError(f"Failed to delete data from {model_cls.__name__}: {e}") from e
+
+    def delete_data_by_id(self, model_cls, record_id: Union[int, str]):
+        """根据id删除指定模型的一条数据.
+
+        Args:
+            model_cls: SQLAlchemy 模型类.
+            record_id: 要删除的记录的id值.
+
+        Raises:
+            MySQLAPIDeleteError: 删除失败抛出异常.
+        """
+        with self.session() as session:
+            try:
+                instance = session.query(model_cls).filter_by(id=int(record_id)).first()
+                if instance:
+                    session.delete(instance)
+                    session.commit()
+            except DatabaseError as e:
+                session.rollback()
+                raise MySQLAPIDeleteError(f"Failed to delete data by id from {model_cls.__name__}: {e}") from e

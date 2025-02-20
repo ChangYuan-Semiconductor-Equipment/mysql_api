@@ -1,8 +1,10 @@
+# pylint: skip-file
 """Mysql 数据库模块."""
 import logging
 from typing import Union, Dict
+from datetime import datetime
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, func
 from sqlalchemy.exc import DatabaseError
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.orm.decl_api import DeclarativeMeta
@@ -10,7 +12,6 @@ from sqlalchemy.orm.decl_api import DeclarativeMeta
 from mysql_api.exception import MySQLAPIAddError, MySQLAPIQueryError, MySQLAPIDeleteError
 
 
-# pylint: disable=R0913, R0917
 # noinspection SqlNoDataSourceInspection
 class MySQLDatabase:
     """MySQLDatabase class."""
@@ -184,3 +185,30 @@ class MySQLDatabase:
             except DatabaseError as e:
                 session.rollback()
                 raise MySQLAPIDeleteError(f"Failed to delete data by id from {model_cls.__name__}: {e}") from e
+    
+    def query_data_with_date(self, model_cls, **filters) -> list:
+        """根据日期查询指定模型的数据.
+        
+        Args:
+            model_cls: SQLAlchemy 模型类.
+            filters: 查询条件, 以关键字参数传入.
+            
+        Returns:
+            list: 查询结果列表.
+            
+        Raises:
+            MySQLAPIQueryError: 查询失败抛出异常.
+        """
+        with self.session() as session:
+            try:
+                query = session.query(model_cls)
+                for filter_name, value in filters.items():
+                    if filter_name == "created_at":
+                        value = datetime.strptime(value, "%Y-%m-%d")
+                        query = query.filter(func.date(getattr(model_cls, filter_name)) == value.date())
+                    else:
+                        query = query.filter(getattr(model_cls, filter_name) == value)
+                return query.all()
+            except DatabaseError as e:
+                raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
+            

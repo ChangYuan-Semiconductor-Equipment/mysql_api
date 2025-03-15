@@ -65,6 +65,26 @@ class MySQLDatabase:
                 session.rollback()
                 raise MySQLAPIAddError(f"Failed to add data to {model_cls.__name__}: {e}") from e
 
+    def add_data_multiple(self, model_cls, data: list[dict]):
+        """向指定数据表添加多行数据.
+
+        Args:
+            model_cls: 数据表模型class.
+            data: 要添加的数据列表, 每个元素是一个字典, 表示一行数据.
+
+        Raises:
+            MySQLAPIAddError: 添加数据失败抛出异常.
+        """
+        with self.session() as session:
+            try:
+                # 创建多个模型实例
+                new_instances = [model_cls(**item) for item in data]
+                session.add_all(new_instances)  # 使用 add_all 批量添加
+                session.commit()
+            except DatabaseError as e:
+                session.rollback()
+                raise MySQLAPIAddError(f"Failed to add data to {model_cls.__name__}: {e}") from e
+
     def update_data(
             self, model_cls, key: str, key_value: Union[str, int, float],
             update_values: Dict[str, Union[str, int, float]]
@@ -150,17 +170,19 @@ class MySQLDatabase:
                 raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
 
     def delete_all_data(self, model_cls):
-        """删除指定模型的所有数据.
+        """删除指定模型的所有数据，并重置自增索引.
 
         Args:
             model_cls: SQLAlchemy 模型类.
 
         Raises:
-            MySQLAPIQueryError: 删除失败抛出异常.
+            MySQLAPIDeleteError: 删除失败抛出异常.
         """
         with self.session() as session:
             try:
                 session.query(model_cls).delete()
+                table_name = model_cls.__tablename__
+                session.execute(text(f"ALTER TABLE {table_name} AUTO_INCREMENT = 1"))
                 session.commit()
             except DatabaseError as e:
                 session.rollback()
@@ -185,17 +207,17 @@ class MySQLDatabase:
             except DatabaseError as e:
                 session.rollback()
                 raise MySQLAPIDeleteError(f"Failed to delete data by id from {model_cls.__name__}: {e}") from e
-    
+
     def query_data_with_date(self, model_cls, **filters) -> list:
         """根据日期查询指定模型的数据.
-        
+
         Args:
             model_cls: SQLAlchemy 模型类.
             filters: 查询条件, 以关键字参数传入.
-            
+
         Returns:
             list: 查询结果列表.
-            
+
         Raises:
             MySQLAPIQueryError: 查询失败抛出异常.
         """
@@ -211,4 +233,3 @@ class MySQLDatabase:
                 return query.all()
             except DatabaseError as e:
                 raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
-            

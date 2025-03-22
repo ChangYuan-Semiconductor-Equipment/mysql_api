@@ -9,7 +9,7 @@ from sqlalchemy.exc import DatabaseError
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
-from mysql_api.exception import MySQLAPIAddError, MySQLAPIQueryError, MySQLAPIDeleteError
+from mysql_api.exception import MySQLAPIAddError, MySQLAPIQueryError, MySQLAPIDeleteError, MySQLAPIUpdateError
 
 
 # noinspection SqlNoDataSourceInspection
@@ -109,6 +109,27 @@ class MySQLDatabase:
                 session.rollback()
                 raise MySQLAPIAddError(f"Failed to add data to {model_cls.__name__}: {e}") from e
 
+    def update_column_values(
+            self, model_cls, column_name: str, new_value: Union[str, int, float]
+    ):
+        """更新数据表中某一列的所有值为指定值.
+
+        Args:
+            model_cls: 数据表模型class.
+            column_name: 要更新的列名.
+            new_value: 要更新的新值.
+
+        Raises:
+            MySQLAPIUpdateError: 更新数据失败抛出异常.
+        """
+        with self.session() as session:
+            try:
+                session.query(model_cls).update({column_name: new_value})
+                session.commit()
+            except DatabaseError as e:
+                session.rollback()
+                raise MySQLAPIUpdateError(f"Failed to update column {column_name} in {model_cls.__name__}: {e}") from e
+
     def query_data_all(self, model_cls, **filters) -> list:
         """查询指定模型的数据.
 
@@ -125,6 +146,34 @@ class MySQLDatabase:
         with self.session() as session:
             try:
                 return session.query(model_cls).filter_by(**filters).all()
+            except DatabaseError as e:
+                raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
+
+    def query_data_by_values(self, model_cls, field: str, values: list, **filters) -> list:
+        """查询指定字段的值等于多个值的数据.
+
+        Args:
+            model_cls: SQLAlchemy 模型类.
+            field: 要查询的字段名.
+            values: 字段对应的多个值，以列表形式传入.
+            filters: 其他查询条件，以关键字参数传入.
+
+        Returns:
+            list: 查询结果列表.
+
+        Raises:
+            MySQLAPIQueryError: 查询失败抛出异常.
+        """
+        with self.session() as session:
+            try:
+                query = session.query(model_cls)
+                # 如果指定了 field 和 values，则添加相应的过滤条件
+                if field is not None and values is not None:
+                    query = query.filter(getattr(model_cls, field).in_(values))
+                # 添加其他过滤条件
+                if filters:
+                    query = query.filter_by(**filters)
+                return query.all()
             except DatabaseError as e:
                 raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
 

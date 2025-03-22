@@ -16,7 +16,7 @@ class MySQLAPIAddError(MySQLAPIError):
     """Exception raised when there is an add error."""
 
 
-class MySQLAPIUploadError(MySQLAPIError):
+class MySQLAPIUpdateError(MySQLAPIError):
     """Exception raised when there is an upload error."""
 
 

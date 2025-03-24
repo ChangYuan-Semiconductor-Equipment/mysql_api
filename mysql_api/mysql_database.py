@@ -130,6 +130,29 @@ class MySQLDatabase:
                 session.rollback()
                 raise MySQLAPIUpdateError(f"Failed to update column {column_name} in {model_cls.__name__}: {e}") from e
 
+
+    def update_columns_values(self, model_cls, column_updates: Dict[str, Union[str, int, float]]):
+        """更新数据表中多列的所有值为指定值。
+
+        Args:
+            model_cls: 数据表模型类。
+            column_updates: 字典格式的列名和新值，例如：
+                {"column1": "new_value1", "column2": 123}
+
+        Raises:
+            MySQLAPIUpdateError: 更新数据失败时抛出异常。
+        """
+        with self.session() as session:
+            try:
+                session.query(model_cls).update(column_updates)
+                session.commit()
+            except DatabaseError as e:
+                session.rollback()
+                raise MySQLAPIUpdateError(
+                    f"Failed to update columns {list(column_updates.keys())} "
+                    f"in {model_cls.__name__}: {e}"
+                ) from e
+
     def query_data_all(self, model_cls, **filters) -> list:
         """查询指定模型的数据.
 
@@ -148,6 +171,44 @@ class MySQLDatabase:
                 return session.query(model_cls).filter_by(**filters).all()
             except DatabaseError as e:
                 raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
+
+    def query_join(self, model_cls_a, model_cls_b, column_name, **filters) -> list:
+        """连接 model_cls_a 和 model_cls_b 表, 以 model_cls_a 表的数据个数为准.
+
+        Args:
+            model_cls_a: 左表模型.
+            model_cls_b: 右表模型.
+            column_name: 左右表连接键的列名.
+            filters: 查询条件，以关键字参数传入.
+
+        Returns:
+            list: 连接后的结果，以字典形式返回.
+
+        Raises:
+            MySQLAPIQueryError: 查询失败抛出异常.
+        """
+        with self.session() as session:
+            try:
+                # 查询 ProductInStationLeft 表的数据
+                table_a_data = session.query(model_cls_a).filter_by(**filters).all()
+
+                # 查询 OriginMapData 表的数据
+                table_b_data = session.query(model_cls_b).all()
+
+                # 将 OriginMapData 表的数据转换为字典，以 product_code 为键
+                table_b_dict = {getattr(item, column_name): item.as_dict() for item in table_b_data}
+
+                # 连接两个表的数据
+                joined_data = []
+                for instance in table_a_data:
+                    one_row_data = instance.as_dict()
+                    if getattr(instance, column_name) in table_b_dict:
+                        one_row_data.update(table_b_dict[getattr(instance, column_name)])
+                    joined_data.append(one_row_data)
+
+                return joined_data
+            except DatabaseError as e:
+                raise MySQLAPIQueryError(f"Failed to join tables: {e}") from e
 
     def query_data_by_values(self, model_cls, field: str, values: list, **filters) -> list:
         """查询指定字段的值等于多个值的数据.

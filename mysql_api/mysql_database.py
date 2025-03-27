@@ -19,9 +19,24 @@ class MySQLDatabase:
     def __init__(self, user_name, password, database_name: str = "cyg", host: str = "127.0.0.1", port: int = 3306):
         self.logger = logging.getLogger(__name__)
         self.engine = create_engine(
-            f"mysql+pymysql://{user_name}:{password}@{host}:{port}/{database_name}?charset=utf8mb4", echo=True
+            f"mysql+pymysql://{user_name}:{password}@{host}:{port}/{database_name}?charset=utf8mb4",
+            pool_size = 5,  # 连接池大小
+            max_overflow = 10,  # 最大溢出连接数
+            pool_pre_ping = True,  # 执行前检查连接是否有效
+            pool_recycle = 3600,  # 1小时后回收连接
+            echo = True
         )
         self.session = scoped_session(sessionmaker(bind=self.engine))
+
+    def _check_connection(self):
+        """检查数据库连接."""
+        try:
+            with self.engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+        except Exception as e:
+            self.logger.warning(f"Database connection check failed: {e}")
+            # 尝试重新建立连接
+            self.engine.dispose()
 
     @staticmethod
     def create_database(user_name: str, password: str, db_name: str, host: str = "127.0.0.1", port: int = 3306):
@@ -56,6 +71,7 @@ class MySQLDatabase:
         Raises:
             MySQLAPIAddError: 添加数据失败抛出异常.
         """
+        self._check_connection()
         with self.session() as session:
             try:
                 new_instance = model_cls(**data)
@@ -75,6 +91,7 @@ class MySQLDatabase:
         Raises:
             MySQLAPIAddError: 添加数据失败抛出异常.
         """
+        self._check_connection()
         with self.session() as session:
             try:
                 # 创建多个模型实例
@@ -100,6 +117,7 @@ class MySQLDatabase:
         Raises:
             MySQLAPIAddError: 更新数据失败抛出异常.
         """
+        self._check_connection()
         with self.session() as session:
             try:
                 if instances := session.query(model_cls).filter_by(**{key: key_value}):
@@ -122,6 +140,7 @@ class MySQLDatabase:
         Raises:
             MySQLAPIUpdateError: 更新数据失败抛出异常.
         """
+        self._check_connection()
         with self.session() as session:
             try:
                 session.query(model_cls).update({column_name: new_value})
@@ -129,7 +148,6 @@ class MySQLDatabase:
             except DatabaseError as e:
                 session.rollback()
                 raise MySQLAPIUpdateError(f"Failed to update column {column_name} in {model_cls.__name__}: {e}") from e
-
 
     def update_columns_values(self, model_cls, column_updates: Dict[str, Union[str, int, float]]):
         """更新数据表中多列的所有值为指定值。
@@ -142,6 +160,7 @@ class MySQLDatabase:
         Raises:
             MySQLAPIUpdateError: 更新数据失败时抛出异常。
         """
+        self._check_connection()
         with self.session() as session:
             try:
                 session.query(model_cls).update(column_updates)
@@ -166,6 +185,7 @@ class MySQLDatabase:
         Raises:
             MySQLAPIQueryError: 查询失败抛出异常.
         """
+        self._check_connection()
         with self.session() as session:
             try:
                 return session.query(model_cls).filter_by(**filters).all()
@@ -187,6 +207,7 @@ class MySQLDatabase:
         Raises:
             MySQLAPIQueryError: 查询失败抛出异常.
         """
+        self._check_connection()
         with self.session() as session:
             try:
                 # 查询 ProductInStationLeft 表的数据
@@ -225,6 +246,7 @@ class MySQLDatabase:
         Raises:
             MySQLAPIQueryError: 查询失败抛出异常.
         """
+        self._check_connection()
         with self.session() as session:
             try:
                 query = session.query(model_cls)
@@ -251,6 +273,7 @@ class MySQLDatabase:
         Raises:
             MySQLAPIQueryError: 查询失败抛出异常.
         """
+        self._check_connection()
         with self.session() as session:
             try:
                 return session.query(model_cls).filter_by(**filters).first()
@@ -272,6 +295,7 @@ class MySQLDatabase:
         Raises:
             MySQLAPIQueryError: 查询失败抛出异常.
         """
+        self._check_connection()
         with self.session() as session:
             try:
                 offset_value = (page - 1) * page_size
@@ -288,6 +312,7 @@ class MySQLDatabase:
         Raises:
             MySQLAPIDeleteError: 删除失败抛出异常.
         """
+        self._check_connection()
         with self.session() as session:
             try:
                 session.query(model_cls).delete()
@@ -308,6 +333,7 @@ class MySQLDatabase:
         Raises:
             MySQLAPIDeleteError: 删除失败抛出异常.
         """
+        self._check_connection()
         with self.session() as session:
             try:
                 instance = session.query(model_cls).filter_by(id=int(record_id)).first()
@@ -331,6 +357,7 @@ class MySQLDatabase:
         Raises:
             MySQLAPIQueryError: 查询失败抛出异常.
         """
+        self._check_connection()
         with self.session() as session:
             try:
                 query = session.query(model_cls)

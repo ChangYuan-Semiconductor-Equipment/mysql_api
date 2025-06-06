@@ -1,7 +1,7 @@
 # pylint: skip-file
 """Mysql 数据库模块."""
 import logging
-from typing import Union, Dict
+from typing import Union, Dict, Optional
 from datetime import datetime
 
 from sqlalchemy import create_engine, text, func
@@ -61,145 +61,102 @@ class MySQLDatabase:
         """
         declarative_base.metadata.create_all(self.engine)
 
-    def add_data(self, model_cls, data: dict):
-        """向指定数据表添加一行数据.
+    def add_data(self, model_cls, data_list: list[dict[str, Union[int, float, str]]]):
+        """向指定数据表添加数据.
 
         Args:
             model_cls: 数据表模型class.
-            data: 要添加的数据, 键值对形式.
+            data_list: 要添加的数据列表, 每行数据是一个字典, 列表下有几个字典代表要写入多少行数据.
 
         Raises:
             MySQLAPIAddError: 添加数据失败抛出异常.
         """
         self._check_connection()
-        with self.session() as session:
-            try:
-                new_instance = model_cls(**data)
-                session.add(new_instance)
+        try:
+            with self.session() as session:
+                new_instances = [model_cls(**item) for item in data_list]
+                session.add_all(new_instances)
                 session.commit()
-            except DatabaseError as e:
-                session.rollback()
-                raise MySQLAPIAddError(f"Failed to add data to {model_cls.__name__}: {e}") from e
+        except DatabaseError as e:
+            session.rollback()
+            raise MySQLAPIAddError(f"Failed to add data to {model_cls.__name__}: {e}") from e
 
-    def add_data_multiple(self, model_cls, data: list[dict]):
-        """向指定数据表添加多行数据.
+    def delete_data(self, model_cls, filter_dict: Optional[dict] = None):
+        """删除指定表里的数据.
 
         Args:
             model_cls: 数据表模型class.
-            data: 要添加的数据列表, 每个元素是一个字典, 表示一行数据.
-
-        Raises:
-            MySQLAPIAddError: 添加数据失败抛出异常.
+            filter_dict: 要删除数据的筛选条件, 默认是 None, 则删除所有数据.
         """
         self._check_connection()
-        with self.session() as session:
-            try:
-                # 创建多个模型实例
-                new_instances = [model_cls(**item) for item in data]
-                session.add_all(new_instances)  # 使用 add_all 批量添加
+        try:
+            with self.session() as session:
+                if filter_dict:
+                    session.query(model_cls).filter_by(**filter_dict).delete()
+                else:
+                    session.execute(text(f"TRUNCATE TABLE {model_cls.__tablename__}"))
                 session.commit()
-            except DatabaseError as e:
-                session.rollback()
-                raise MySQLAPIAddError(f"Failed to add data to {model_cls.__name__}: {e}") from e
+        except DatabaseError as e:
+            session.rollback()
+            raise MySQLAPIDeleteError(f"Failed to delete data from {model_cls.__name__}: {e}") from e
 
-    def update_data(
-            self, model_cls, key: str, key_value: Union[str, int, float],
-            update_values: Dict[str, Union[str, int, float]]
-    ):
-        """向指定数据表更新数据.
+    def update_data(self, model_cls, update_values: dict, filter_dict: Optional[dict] = None):
+        """更新数据表的数据.
 
         Args:
             model_cls: 数据表模型class.
-            key: 要更新的字段名.
-            key_value: key字段的值.
             update_values: 要更新的字段值.
+            filter_dict: 要更新数据的筛选条件, 默认是 None, 则更新所有行数据的列为指定值.
 
         Raises:
             MySQLAPIAddError: 更新数据失败抛出异常.
         """
         self._check_connection()
-        with self.session() as session:
-            try:
-                if instances := session.query(model_cls).filter_by(**{key: key_value}):
-                    instances.update(update_values)
-                    session.commit()
-            except DatabaseError as e:
-                session.rollback()
-                raise MySQLAPIAddError(f"Failed to add data to {model_cls.__name__}: {e}") from e
+        try:
+            with self.session() as session:
+                if filter_dict:
+                    session.query(model_cls).filter_by(**filter_dict).update(update_values)
+                else:
+                    session.query(model_cls).update(update_values)
+                session.commit()
+        except DatabaseError as e:
+            session.rollback()
+            raise MySQLAPIAddError(f"Failed to add data to {model_cls.__name__}: {e}") from e
 
-    def update_column_values(
-            self, model_cls, column_name: str, new_value: Union[str, int, float]
-    ):
-        """更新数据表中某一列的所有值为指定值.
+    def query_data(self, model_cls, filter_dict: Optional[dict] = None) -> list:
+        """查询表数据.
 
         Args:
             model_cls: 数据表模型class.
-            column_name: 要更新的列名.
-            new_value: 要更新的新值.
-
-        Raises:
-            MySQLAPIUpdateError: 更新数据失败抛出异常.
-        """
-        self._check_connection()
-        with self.session() as session:
-            try:
-                session.query(model_cls).update({column_name: new_value})
-                session.commit()
-            except DatabaseError as e:
-                session.rollback()
-                raise MySQLAPIUpdateError(f"Failed to update column {column_name} in {model_cls.__name__}: {e}") from e
-
-    def update_columns_values(self, model_cls, column_updates: Dict[str, Union[str, int, float]]):
-        """更新数据表中多列的所有值为指定值。
-
-        Args:
-            model_cls: 数据表模型类。
-            column_updates: 字典格式的列名和新值，例如：
-                {"column1": "new_value1", "column2": 123}
-
-        Raises:
-            MySQLAPIUpdateError: 更新数据失败时抛出异常。
-        """
-        self._check_connection()
-        with self.session() as session:
-            try:
-                session.query(model_cls).update(column_updates)
-                session.commit()
-            except DatabaseError as e:
-                session.rollback()
-                raise MySQLAPIUpdateError(
-                    f"Failed to update columns {list(column_updates.keys())} "
-                    f"in {model_cls.__name__}: {e}"
-                ) from e
-
-    def query_data_all(self, model_cls, **filters) -> list:
-        """查询指定模型的数据.
-
-        Args:
-            model_cls: SQLAlchemy 模型类.
-            filters: 查询条件，以关键字参数传入.
+            filter_dict: 要查询数据的筛选条件, 默认是 None, 则查询表的所有数据.
 
         Returns:
-            list: 查询结果列表.
-
-        Raises:
-            MySQLAPIQueryError: 查询失败抛出异常.
+            list: 返回查询到数据表实例列表.
         """
         self._check_connection()
-        with self.session() as session:
-            try:
-                return session.query(model_cls).filter_by(**filters).all()
-            except DatabaseError as e:
-                raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
+        try:
+            with self.session() as session:
+                if filter_dict:
+                    model_instance_list = session.query(model_cls).filter_by(**filter_dict).all()
+                else:
+                    model_instance_list = session.query(model_cls).all()
+                real_data_list = []
+                for model_instance in model_instance_list:
+                    data_dict = model_instance.__dict__
+                    data_dict.pop("_sa_instance_state", None)
+                    real_data_list.append(data_dict)
+                return real_data_list
+        except DatabaseError as e:
+            raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
 
-    def query_join(self, model_cls_a, model_cls_b, column_name, **filters) -> list:
+    def query_data_join(self, model_cls_a, model_cls_b, column_name, filter_dict: dict) -> list:
         """连接 model_cls_a 和 model_cls_b 表, 以 model_cls_a 表的数据个数为准.
 
         Args:
             model_cls_a: 左表模型.
             model_cls_b: 右表模型.
             column_name: 左右表连接键的列名.
-            filters: 查询条件，以关键字参数传入.
+            filter_dict: 要查询数据的筛选条件, 默认是 None, 则查询表的所有数据.
 
         Returns:
             list: 连接后的结果，以字典形式返回.
@@ -208,165 +165,22 @@ class MySQLDatabase:
             MySQLAPIQueryError: 查询失败抛出异常.
         """
         self._check_connection()
-        with self.session() as session:
-            try:
-                # 查询 ProductInStationLeft 表的数据
-                table_a_data = session.query(model_cls_a).filter_by(**filters).all()
-
-                # 查询 OriginMapData 表的数据
-                table_b_data = session.query(model_cls_b).all()
-
-                # 将 OriginMapData 表的数据转换为字典，以 product_code 为键
-                table_b_dict = {getattr(item, column_name): item.as_dict() for item in table_b_data}
-
-                # 连接两个表的数据
-                joined_data = []
-                for instance in table_a_data:
-                    one_row_data = instance.as_dict()
-                    if getattr(instance, column_name) in table_b_dict:
-                        one_row_data.update(table_b_dict[getattr(instance, column_name)])
-                    joined_data.append(one_row_data)
-
-                return joined_data
-            except DatabaseError as e:
-                raise MySQLAPIQueryError(f"Failed to join tables: {e}") from e
-
-    def query_data_by_values(self, model_cls, field: str, values: list, **filters) -> list:
-        """查询指定字段的值等于多个值的数据.
-
-        Args:
-            model_cls: SQLAlchemy 模型类.
-            field: 要查询的字段名.
-            values: 字段对应的多个值，以列表形式传入.
-            filters: 其他查询条件，以关键字参数传入.
-
-        Returns:
-            list: 查询结果列表.
-
-        Raises:
-            MySQLAPIQueryError: 查询失败抛出异常.
-        """
-        self._check_connection()
-        with self.session() as session:
-            try:
-                query = session.query(model_cls)
-                # 如果指定了 field 和 values，则添加相应的过滤条件
-                if field is not None and values is not None:
-                    query = query.filter(getattr(model_cls, field).in_(values))
-                # 添加其他过滤条件
-                if filters:
-                    query = query.filter_by(**filters)
-                return query.all()
-            except DatabaseError as e:
-                raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
-
-    def query_data_one(self, model_cls, **filters):
-        """查询指定模型的一条数据.
-
-        Args:
-            model_cls: SQLAlchemy 模型类.
-            filters: 查询条件，以关键字参数传入.
-
-        Returns:
-            模型类实例或None: 查询结果，如果未找到数据则返回None.
-
-        Raises:
-            MySQLAPIQueryError: 查询失败抛出异常.
-        """
-        self._check_connection()
-        with self.session() as session:
-            try:
-                return session.query(model_cls).filter_by(**filters).first()
-            except DatabaseError as e:
-                raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
-
-    def query_data_page(self, model_cls, page=1, page_size=10, **filters):
-        """查询指定模型的多条数据，并支持分页.
-
-        Args:
-            model_cls: SQLAlchemy 模型类.
-            page: 当前页码, 默认为 1.
-            page_size: 每页记录数, 默认为 10.
-            filters: 查询条件，以关键字参数传入.
-
-        Returns:
-            list: 查询结果列表.
-
-        Raises:
-            MySQLAPIQueryError: 查询失败抛出异常.
-        """
-        self._check_connection()
-        with self.session() as session:
-            try:
-                offset_value = (page - 1) * page_size
-                return session.query(model_cls).filter_by(**filters).limit(page_size).offset(offset_value).all()
-            except DatabaseError as e:
-                raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
-
-    def delete_all_data(self, model_cls):
-        """删除指定模型的所有数据，并重置自增索引.
-
-        Args:
-            model_cls: SQLAlchemy 模型类.
-
-        Raises:
-            MySQLAPIDeleteError: 删除失败抛出异常.
-        """
-        self._check_connection()
-        with self.session() as session:
-            try:
-                session.query(model_cls).delete()
-                table_name = model_cls.__tablename__
-                session.execute(text(f"ALTER TABLE {table_name} AUTO_INCREMENT = 1"))
-                session.commit()
-            except DatabaseError as e:
-                session.rollback()
-                raise MySQLAPIDeleteError(f"Failed to delete data from {model_cls.__name__}: {e}") from e
-
-    def delete_data_by_id(self, model_cls, record_id: Union[int, str]):
-        """根据id删除指定模型的一条数据.
-
-        Args:
-            model_cls: SQLAlchemy 模型类.
-            record_id: 要删除的记录的id值.
-
-        Raises:
-            MySQLAPIDeleteError: 删除失败抛出异常.
-        """
-        self._check_connection()
-        with self.session() as session:
-            try:
-                instance = session.query(model_cls).filter_by(id=int(record_id)).first()
-                if instance:
-                    session.delete(instance)
-                    session.commit()
-            except DatabaseError as e:
-                session.rollback()
-                raise MySQLAPIDeleteError(f"Failed to delete data by id from {model_cls.__name__}: {e}") from e
-
-    def query_data_with_date(self, model_cls, **filters) -> list:
-        """根据日期查询指定模型的数据.
-
-        Args:
-            model_cls: SQLAlchemy 模型类.
-            filters: 查询条件, 以关键字参数传入.
-
-        Returns:
-            list: 查询结果列表.
-
-        Raises:
-            MySQLAPIQueryError: 查询失败抛出异常.
-        """
-        self._check_connection()
-        with self.session() as session:
-            try:
-                query = session.query(model_cls)
-                for filter_name, value in filters.items():
-                    if filter_name == "created_at":
-                        value = datetime.strptime(value, "%Y-%m-%d")
-                        query = query.filter(func.date(getattr(model_cls, filter_name)) == value.date())
-                    else:
-                        query = query.filter(getattr(model_cls, filter_name) == value)
-                return query.all()
-            except DatabaseError as e:
-                raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
+        try:
+            with self.session() as session:
+                key_a = getattr(model_cls_a, column_name)
+                key_b = getattr(model_cls_b, column_name)
+                query = session.query(model_cls_a, model_cls_b).join(model_cls_a, key_a == key_b, isouter=True)
+                model_instance_list = query.filter_by(**filter_dict).all()
+                real_data_list = []
+                for model_instance in model_instance_list:
+                    _temp_dict = {}
+                    model_cls_a_dict = model_instance[0].__dict__
+                    model_cls_b_dict = model_instance[1].__dict__
+                    model_cls_a_dict.pop("_sa_instance_state", None)
+                    model_cls_b_dict.pop("_sa_instance_state", None)
+                    _temp_dict.update(model_cls_a_dict)
+                    _temp_dict.update(model_cls_b_dict)
+                    real_data_list.append(_temp_dict)
+                return real_data_list
+        except DatabaseError as e:
+            raise MySQLAPIQueryError(f"Failed to join tables: {e}") from e

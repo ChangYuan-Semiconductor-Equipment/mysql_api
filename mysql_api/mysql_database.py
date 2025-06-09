@@ -1,10 +1,9 @@
 # pylint: skip-file
 """Mysql 数据库模块."""
 import logging
-from typing import Union, Dict, Optional
-from datetime import datetime
+from typing import Union, Optional
 
-from sqlalchemy import create_engine, text, func
+from sqlalchemy import create_engine, text
 from sqlalchemy.exc import DatabaseError
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.orm.decl_api import DeclarativeMeta
@@ -87,6 +86,9 @@ class MySQLDatabase:
         Args:
             model_cls: 数据表模型class.
             filter_dict: 要删除数据的筛选条件, 默认是 None, 则删除所有数据.
+
+        Raises:
+            MySQLAPIDeleteError: 删除数据失败抛出异常.
         """
         self._check_connection()
         try:
@@ -109,7 +111,7 @@ class MySQLDatabase:
             filter_dict: 要更新数据的筛选条件, 默认是 None, 则更新所有行数据的列为指定值.
 
         Raises:
-            MySQLAPIAddError: 更新数据失败抛出异常.
+            MySQLAPIUpdateError: 更新数据失败抛出异常.
         """
         self._check_connection()
         try:
@@ -121,7 +123,7 @@ class MySQLDatabase:
                 session.commit()
         except DatabaseError as e:
             session.rollback()
-            raise MySQLAPIAddError(f"Failed to add data to {model_cls.__name__}: {e}") from e
+            raise MySQLAPIUpdateError(f"Failed to add data to {model_cls.__name__}: {e}") from e
 
     def query_data(self, model_cls, filter_dict: Optional[dict] = None) -> list:
         """查询表数据.
@@ -132,6 +134,9 @@ class MySQLDatabase:
 
         Returns:
             list: 返回查询到数据表实例列表.
+
+        Raises:
+            MySQLAPIQueryError: 更新数据失败抛出异常.
         """
         self._check_connection()
         try:
@@ -146,7 +151,7 @@ class MySQLDatabase:
                     data_dict.pop("_sa_instance_state", None)
                     real_data_list.append(data_dict)
 
-                self.logger.info("查询数据为: %s", data_dict)
+                self.logger.info("查询数据为: %s", real_data_list)
                 return real_data_list
         except DatabaseError as e:
             raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
@@ -183,7 +188,7 @@ class MySQLDatabase:
                     _temp_dict.update(model_cls_a_dict)
                     _temp_dict.update(model_cls_b_dict)
                     real_data_list.append(_temp_dict)
-                self.logger.info("查询数据为: %s", data_dict)
+                self.logger.info("查询数据为: %s", real_data_list)
                 return real_data_list
         except DatabaseError as e:
             raise MySQLAPIQueryError(f"Failed to join tables: {e}") from e

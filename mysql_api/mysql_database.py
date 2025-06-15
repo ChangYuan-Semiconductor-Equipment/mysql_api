@@ -1,6 +1,9 @@
 # pylint: skip-file
 """Mysql 数据库模块."""
 import logging
+import os
+import pathlib
+from logging.handlers import TimedRotatingFileHandler
 from typing import Union, Optional
 
 from sqlalchemy import create_engine, text
@@ -15,7 +18,18 @@ from mysql_api.exception import MySQLAPIAddError, MySQLAPIQueryError, MySQLAPIDe
 class MySQLDatabase:
     """MySQLDatabase class."""
 
-    def __init__(self, user_name, password, database_name: str = "cyg", host: str = "127.0.0.1", port: int = 3306):
+    LOG_FORMAT = "%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s"
+
+    def __init__(self, user_name: str, password: str, database_name: str = "cyg", host: str = "127.0.0.1", port: int = 3306):
+        """MySQLDatabase 构造方法.
+
+        Args:
+            user_name: 用户名.
+            password: 密码.
+            database_name: 数据库名称.
+            host: 数据库 ip 地址.
+            port: 数据库端口号.
+        """
         self.logger = logging.getLogger(__name__)
         self.engine = create_engine(
             f"mysql+pymysql://{user_name}:{password}@{host}:{port}/{database_name}?charset=utf8mb4",
@@ -26,6 +40,13 @@ class MySQLDatabase:
             echo = True
         )
         self.session = scoped_session(sessionmaker(bind=self.engine))
+        self._file_handler = None  # 保存日志的处理器
+        self._initial_log_config()
+
+    def _initial_log_config(self) -> None:
+        """日志配置."""
+        self._create_log_dir()
+        self.logger.addHandler(self.file_handler)  # handler_passive 日志保存到统一文件
 
     def _check_connection(self):
         """检查数据库连接."""
@@ -36,6 +57,43 @@ class MySQLDatabase:
             self.logger.warning(f"Database connection check failed: {e}")
             # 尝试重新建立连接
             self.engine.dispose()
+
+    @property
+    def file_handler(self) -> TimedRotatingFileHandler:
+        """设置保存日志的处理器, 每隔 24h 自动生成一个日志文件.
+
+        Returns:
+            TimedRotatingFileHandler: 返回 TimedRotatingFileHandler 日志处理器.
+        """
+        if self._file_handler is None:
+            self._file_handler = TimedRotatingFileHandler(
+                f"{os.getcwd()}/log/mysql.log",
+                when="D", interval=1, backupCount=10, encoding="UTF-8"
+            )
+            self._file_handler.namer = self._custom_log_name
+            self._file_handler.setFormatter(logging.Formatter(self.LOG_FORMAT))
+        return self._file_handler
+
+    @staticmethod
+    def _custom_log_name(log_path: str):
+        """自定义新生成的日志名称.
+
+        Args:
+            log_path: 原始的日志文件路径.
+
+        Returns:
+            str: 新生成的自定义日志文件路径.
+        """
+        _, suffix, date_str = log_path.split(".")
+        new_log_path = f"{os.getcwd()}/log/mysql_{date_str}.{suffix}"
+        return new_log_path
+
+    @staticmethod
+    def _create_log_dir():
+        """判断log目录是否存在, 不存在就创建."""
+        log_dir = pathlib.Path(f"{os.getcwd()}/log")
+        if not log_dir.exists():
+            os.mkdir(log_dir)
 
     @staticmethod
     def create_database(user_name: str, password: str, db_name: str, host: str = "127.0.0.1", port: int = 3306):

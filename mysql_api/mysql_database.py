@@ -194,7 +194,7 @@ class MySQLDatabase:
             list: 返回查询到数据表实例列表.
 
         Raises:
-            MySQLAPIQueryError: 更新数据失败抛出异常.
+            MySQLAPIQueryError: 查询数据失败抛出异常.
         """
         self._check_connection()
         try:
@@ -250,3 +250,37 @@ class MySQLDatabase:
                 return real_data_list
         except DatabaseError as e:
             raise MySQLAPIQueryError(f"Failed to join tables: {e}") from e
+
+    def query_data_in(self, model_cls, column_name: str, column_values: list, filter_dict: Optional[dict] = None) -> list:
+        """查询表数据, 指定列的值在筛选列表里.
+
+        Args:
+            model_cls: 数据表模型class.
+            column_name: 指定列名.
+            column_values: 要筛选的值列表.
+            filter_dict: 要查询数据的筛选条件, 默认是 None, 则查询表的所有数据.
+
+        Returns:
+            list: 返回查询到数据表实例列表.
+
+        Raises:
+            MySQLAPIQueryError: 查询数据失败抛出异常.
+        """
+        self._check_connection()
+        try:
+            with self.session() as session:
+                query_instance = session.query(model_cls).filter(getattr(model_cls, column_name).in_(column_values))
+                if filter_dict:
+                    model_instance_list = query_instance.filter_by(**filter_dict).all()
+                else:
+                    model_instance_list = query_instance.all()
+                real_data_list = []
+                for model_instance in model_instance_list:
+                    data_dict = model_instance.__dict__
+                    data_dict.pop("_sa_instance_state", None)
+                    real_data_list.append(data_dict)
+
+                self.logger.info("查询数据为: %s", real_data_list)
+                return real_data_list
+        except DatabaseError as e:
+            raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e

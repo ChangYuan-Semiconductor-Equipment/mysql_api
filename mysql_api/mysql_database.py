@@ -20,7 +20,10 @@ class MySQLDatabase:
 
     LOG_FORMAT = "%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s"
 
-    def __init__(self, user_name: str, password: str, database_name: str = "cyg", host: str = "127.0.0.1", port: int = 3306):
+    def __init__(
+            self, user_name: str, password: str, database_name: str = "cyg",
+            host: str = "127.0.0.1", port: int = 3306, save_log: bool = False
+    ):
         """MySQLDatabase 构造方法.
 
         Args:
@@ -29,7 +32,9 @@ class MySQLDatabase:
             database_name: 数据库名称.
             host: 数据库 ip 地址.
             port: 数据库端口号.
+            save_log: 是否保存日志, 默认不保存.
         """
+        self.save_log = save_log
         self.logger = logging.getLogger(__name__)
         self.engine = create_engine(
             f"mysql+pymysql://{user_name}:{password}@{host}:{port}/{database_name}?charset=utf8mb4",
@@ -45,8 +50,9 @@ class MySQLDatabase:
 
     def _initial_log_config(self) -> None:
         """日志配置."""
-        self._create_log_dir()
-        self.logger.addHandler(self.file_handler)  # handler_passive 日志保存到统一文件
+        if self.save_log:
+            self._create_log_dir()
+            self.logger.addHandler(self.file_handler)  # handler_passive 日志保存到统一文件
 
     def _check_connection(self):
         """检查数据库连接."""

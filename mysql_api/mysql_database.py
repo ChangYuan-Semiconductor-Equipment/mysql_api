@@ -90,7 +90,7 @@ class MySQLDatabase:
         Returns:
             str: 新生成的自定义日志文件路径.
         """
-        _, suffix, date_str = log_path.split(".")
+        _, suffix, date_str, *__ = log_path.split(".")
         new_log_path = f"{os.getcwd()}/log/mysql_{date_str}.{suffix}"
         return new_log_path
 

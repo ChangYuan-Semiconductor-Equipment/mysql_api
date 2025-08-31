@@ -214,8 +214,6 @@ class MySQLDatabase:
                     data_dict = model_instance.__dict__
                     data_dict.pop("_sa_instance_state", None)
                     real_data_list.append(data_dict)
-
-                self.logger.info("查询数据为: %s", real_data_list)
                 return real_data_list
         except DatabaseError as e:
             raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
@@ -252,7 +250,6 @@ class MySQLDatabase:
                     _temp_dict.update(model_cls_a_dict)
                     _temp_dict.update(model_cls_b_dict)
                     real_data_list.append(_temp_dict)
-                self.logger.info("查询数据为: %s", real_data_list)
                 return real_data_list
         except DatabaseError as e:
             raise MySQLAPIQueryError(f"Failed to join tables: {e}") from e
@@ -285,8 +282,6 @@ class MySQLDatabase:
                     data_dict = model_instance.__dict__
                     data_dict.pop("_sa_instance_state", None)
                     real_data_list.append(data_dict)
-
-                self.logger.info("查询数据为: %s", real_data_list)
                 return real_data_list
         except DatabaseError as e:
             raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e

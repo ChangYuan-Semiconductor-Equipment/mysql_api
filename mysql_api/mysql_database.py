@@ -48,7 +48,7 @@ class MySQLDatabase:
         self._file_handler = None  # 保存日志的处理器
         self._initial_log_config()
 
-    def _initial_log_config(self) -> None:
+    def _initial_log_config(self):
         """日志配置."""
         if self.save_log:
             self._create_log_dir()

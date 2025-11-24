@@ -42,7 +42,7 @@ class MySQLDatabase:
             max_overflow = 10,  # 最大溢出连接数
             pool_pre_ping = True,  # 执行前检查连接是否有效
             pool_recycle = 3600,  # 1小时后回收连接
-            echo = True
+            echo = False
         )
         self.session = scoped_session(sessionmaker(bind=self.engine))
         self._file_handler = None  # 保存日志的处理器

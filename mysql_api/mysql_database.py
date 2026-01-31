@@ -1,28 +1,22 @@
 # pylint: skip-file
 """Mysql 数据库模块."""
-import logging
-import os
-import pathlib
-from logging.handlers import TimedRotatingFileHandler
 from typing import Union, Optional
 
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import DatabaseError
+from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.orm.decl_api import DeclarativeMeta
 
-from mysql_api.exception import MySQLAPIAddError, MySQLAPIQueryError, MySQLAPIDeleteError, MySQLAPIUpdateError
+from mysql_api import exception
 
 
 # noinspection SqlNoDataSourceInspection
 class MySQLDatabase:
     """MySQLDatabase class."""
 
-    LOG_FORMAT = "%(asctime)s - %(levelname)s - %(filename)s:%(lineno)d - %(message)s"
-
     def __init__(
-            self, user_name: str, password: str, database_name: str = "cyg",
-            host: str = "127.0.0.1", port: int = 3306, save_log: bool = False
+            self, user_name: str, password: str, database_name: str = "big_beauty",
+            host: str = "127.0.0.1", port: int = 3306, echo: bool = False
     ):
         """MySQLDatabase 构造方法.
 
@@ -32,74 +26,30 @@ class MySQLDatabase:
             database_name: 数据库名称.
             host: 数据库 ip 地址.
             port: 数据库端口号.
-            save_log: 是否保存日志, 默认不保存.
         """
-        self.save_log = save_log
-        self.logger = logging.getLogger(__name__)
         self.engine = create_engine(
             f"mysql+pymysql://{user_name}:{password}@{host}:{port}/{database_name}?charset=utf8mb4",
             pool_size = 5,  # 连接池大小
             max_overflow = 10,  # 最大溢出连接数
             pool_pre_ping = True,  # 执行前检查连接是否有效
             pool_recycle = 3600,  # 1小时后回收连接
-            echo = False
+            echo = echo
         )
         self.session = scoped_session(sessionmaker(bind=self.engine))
-        self._file_handler = None  # 保存日志的处理器
-        self._initial_log_config()
-
-    def _initial_log_config(self):
-        """日志配置."""
-        if self.save_log:
-            self._create_log_dir()
-            self.logger.addHandler(self.file_handler)  # handler_passive 日志保存到统一文件
 
     def _check_connection(self):
-        """检查数据库连接."""
+        """检查数据库连接.
+
+        Raises:
+            MySQLAPIConnectionError: 连接失败异常.
+        """
         try:
             with self.engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
-        except Exception as e:
-            self.logger.warning(f"Database connection check failed: {e}")
-            # 尝试重新建立连接
+        except OperationalError as e:
+            # 释放引擎资源
             self.engine.dispose()
-
-    @property
-    def file_handler(self) -> TimedRotatingFileHandler:
-        """设置保存日志的处理器, 每隔 24h 自动生成一个日志文件.
-
-        Returns:
-            TimedRotatingFileHandler: 返回 TimedRotatingFileHandler 日志处理器.
-        """
-        if self._file_handler is None:
-            self._file_handler = TimedRotatingFileHandler(
-                f"{os.getcwd()}/log/mysql.log",
-                when="D", interval=1, backupCount=10, encoding="UTF-8"
-            )
-            self._file_handler.namer = self._custom_log_name
-            self._file_handler.setFormatter(logging.Formatter(self.LOG_FORMAT))
-        return self._file_handler
-
-    @staticmethod
-    def _custom_log_name(log_path: str):
-        """自定义新生成的日志名称.
-
-        Args:
-            log_path: 原始的日志文件路径.
-
-        Returns:
-            str: 新生成的自定义日志文件路径.
-        """
-        _, suffix, date_str, *__ = log_path.split(".")
-        new_log_path = f"{os.getcwd()}/log/mysql_{date_str}.{suffix}"
-        return new_log_path
-
-    @staticmethod
-    def _create_log_dir():
-        """判断log目录是否存在, 不存在就创建."""
-        log_dir = pathlib.Path(f"{os.getcwd()}/log")
-        if not log_dir.exists():
-            os.mkdir(log_dir)
+            raise exception.MySQLAPIConnectionError(f"连接失败: {str(e)}") from e
 
     @staticmethod
     def create_database(user_name: str, password: str, db_name: str, host: str = "127.0.0.1", port: int = 3306):
@@ -112,7 +62,7 @@ class MySQLDatabase:
             port:端口号.
             db_name: 要创建的数据库名称.
         """
-        engine = create_engine(f"mysql+pymysql://{user_name}:{password}@{host}:{port}", echo=True)
+        engine = create_engine(f"mysql+pymysql://{user_name}:{password}@{host}:{port}", echo=False)
         with engine.connect() as con:
             con.execute(text(f"CREATE DATABASE IF NOT EXISTS {db_name}"))
 
@@ -142,7 +92,7 @@ class MySQLDatabase:
                 session.commit()
         except DatabaseError as e:
             session.rollback()
-            raise MySQLAPIAddError(f"Failed to add data to {model_cls.__name__}: {e}") from e
+            raise exception.MySQLAPIAddError(f"Failed to add data to {model_cls.__name__}: {str(e)}") from e
 
     def delete_data(self, model_cls, filter_dict: Optional[dict] = None):
         """删除指定表里的数据.
@@ -164,7 +114,7 @@ class MySQLDatabase:
                 session.commit()
         except DatabaseError as e:
             session.rollback()
-            raise MySQLAPIDeleteError(f"Failed to delete data from {model_cls.__name__}: {e}") from e
+            raise exception.MySQLAPIDeleteError(f"Failed to delete data from {model_cls.__name__}: {str(e)}") from e
 
     def update_data(self, model_cls, update_values: dict, filter_dict: Optional[dict] = None):
         """更新数据表的数据.
@@ -187,36 +137,7 @@ class MySQLDatabase:
                 session.commit()
         except DatabaseError as e:
             session.rollback()
-            raise MySQLAPIUpdateError(f"Failed to add data to {model_cls.__name__}: {e}") from e
-
-    def query_data(self, model_cls, filter_dict: Optional[dict] = None) -> list:
-        """查询表数据.
-
-        Args:
-            model_cls: 数据表模型class.
-            filter_dict: 要查询数据的筛选条件, 默认是 None, 则查询表的所有数据.
-
-        Returns:
-            list: 返回查询到数据表实例列表.
-
-        Raises:
-            MySQLAPIQueryError: 查询数据失败抛出异常.
-        """
-        self._check_connection()
-        try:
-            with self.session() as session:
-                if filter_dict:
-                    model_instance_list = session.query(model_cls).filter_by(**filter_dict).all()
-                else:
-                    model_instance_list = session.query(model_cls).all()
-                real_data_list = []
-                for model_instance in model_instance_list:
-                    data_dict = model_instance.__dict__
-                    data_dict.pop("_sa_instance_state", None)
-                    real_data_list.append(data_dict)
-                return real_data_list
-        except DatabaseError as e:
-            raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
+            raise exception.MySQLAPIUpdateError(f"Failed to add data to {model_cls.__name__}: {str(e)}") from e
 
     def query_data_join(self, model_cls_a, model_cls_b, column_name, filter_dict: dict) -> list:
         """连接 model_cls_a 和 model_cls_b 表, 以 model_cls_a 表的数据个数为准.
@@ -252,16 +173,15 @@ class MySQLDatabase:
                     real_data_list.append(_temp_dict)
                 return real_data_list
         except DatabaseError as e:
-            raise MySQLAPIQueryError(f"Failed to join tables: {e}") from e
+            raise exception.MySQLAPIQueryError(f"Failed to join tables: {str(e)}") from e
 
-    def query_data_in(self, model_cls, column_name: str, column_values: list, filter_dict: Optional[dict] = None) -> list:
-        """查询表数据, 指定列的值在筛选列表里.
+    def query_data(self, model_cls, filter_dict: Optional[dict] = None, columns_return: list = None) -> list:
+        """查询表数据.
 
         Args:
-            model_cls: 数据表模型class.
-            column_name: 指定列名.
-            column_values: 要筛选的值列表.
+            model_cls: 数据表模型 class.
             filter_dict: 要查询数据的筛选条件, 默认是 None, 则查询表的所有数据.
+            columns_return: 要返回的列名.
 
         Returns:
             list: 返回查询到数据表实例列表.
@@ -270,13 +190,17 @@ class MySQLDatabase:
             MySQLAPIQueryError: 查询数据失败抛出异常.
         """
         self._check_connection()
+        column_filter = [getattr(model_cls, column_name) for column_name in columns_return] if columns_return else [model_cls]
         try:
             with self.session() as session:
-                query_instance = session.query(model_cls).filter(getattr(model_cls, column_name).in_(column_values))
                 if filter_dict:
-                    model_instance_list = query_instance.filter_by(**filter_dict).all()
+                    model_instance_list = session.query(*column_filter).filter_by(**filter_dict).all()
                 else:
-                    model_instance_list = query_instance.all()
+                    model_instance_list = session.query(*column_filter).all()
+
+                if columns_return:
+                    return [dict(zip(columns_return, value_tuple)) for value_tuple in model_instance_list]
+
                 real_data_list = []
                 for model_instance in model_instance_list:
                     data_dict = model_instance.__dict__
@@ -284,4 +208,45 @@ class MySQLDatabase:
                     real_data_list.append(data_dict)
                 return real_data_list
         except DatabaseError as e:
-            raise MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {e}") from e
+            raise exception.MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {str(e)}") from e
+
+    def query_data_in(
+            self, model_cls, column_name: str, column_values: list, filter_dict: Optional[dict] = None,
+            columns_return: list = None
+    ) -> list:
+        """查询表数据, 指定列的值在筛选列表里.
+
+        Args:
+            model_cls: 数据表模型class.
+            column_name: 指定列名.
+            column_values: 要筛选的值列表.
+            filter_dict: 要查询数据的筛选条件, 默认是 None, 则查询表的所有数据.
+            columns_return: 要返回的列名.
+
+        Returns:
+            list: 返回查询到数据表实例列表.
+
+        Raises:
+            MySQLAPIQueryError: 查询数据失败抛出异常.
+        """
+        self._check_connection()
+        column_filter = [getattr(model_cls, column_name) for column_name in columns_return] if columns_return  else [model_cls]
+        try:
+            with self.session() as session:
+                query_instance = session.query(*column_filter).filter(getattr(model_cls, column_name).in_(column_values))
+                if filter_dict:
+                    model_instance_list = query_instance.filter_by(**filter_dict).all()
+                else:
+                    model_instance_list = query_instance.all()
+
+                if columns_return:
+                    return [dict(zip(columns_return, value_tuple)) for value_tuple in model_instance_list]
+
+                real_data_list = []
+                for model_instance in model_instance_list:
+                    data_dict = model_instance.__dict__
+                    data_dict.pop("_sa_instance_state", None)
+                    real_data_list.append(data_dict)
+                return real_data_list
+        except DatabaseError as e:
+            raise exception.MySQLAPIQueryError(f"Failed to query data for {model_cls.__name__}: {str(e)}") from e

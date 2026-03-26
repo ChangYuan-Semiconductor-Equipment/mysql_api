@@ -2,7 +2,7 @@
 """Mysql 数据库模块."""
 from typing import Union, Optional
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, inspect
 from sqlalchemy.exc import DatabaseError, OperationalError
 from sqlalchemy.orm import sessionmaker, scoped_session
 from sqlalchemy.orm.decl_api import DeclarativeMeta
@@ -94,12 +94,13 @@ class MySQLDatabase:
             session.rollback()
             raise exception.MySQLAPIAddError(f"Failed to add data to {model_cls.__name__}: {str(e)}") from e
 
-    def delete_data(self, model_cls, filter_dict: Optional[dict] = None):
+    def delete_data(self, model_cls, filter_dict: Optional[dict] = None, limit: int = None):
         """删除指定表里的数据.
 
         Args:
             model_cls: 数据表模型class.
             filter_dict: 要删除数据的筛选条件, 默认是 None, 则删除所有数据.
+            limit: 指定删除多少行.
 
         Raises:
             MySQLAPIDeleteError: 删除数据失败抛出异常.
@@ -107,11 +108,38 @@ class MySQLDatabase:
         self._check_connection()
         try:
             with self.session() as session:
-                if filter_dict:
-                    session.query(model_cls).filter_by(**filter_dict).delete()
-                else:
+                # 情况1：没有过滤条件且没有 limit → 全表清空
+                if not filter_dict and limit is None:
                     session.execute(text(f"TRUNCATE TABLE {model_cls.__tablename__}"))
+                    session.commit()
+                    return
+
+                # 获取模型的主键列名(假设只有一个主键)
+                mapper = inspect(model_cls)
+                primary_key = mapper.primary_key[0].name  # 取第一个主键列名
+
+                # 构建基础查询
+                query = session.query(getattr(model_cls, primary_key))  # 只查询主键
+                if filter_dict:
+                    query = query.filter_by(**filter_dict)
+
+                # 如果有 limit, 限制查询行数（并默认按主键升序）
+                if limit is not None:
+                    query = query.order_by(getattr(model_cls, primary_key)).limit(limit)
+
+                # 获取要删除的主键列表
+                pk_values = [row[0] for row in query.all()]
+
+                # 如果没有要删除的行, 直接返回
+                if not pk_values:
+                    return
+
+                # 根据主键列表删除
+                session.query(model_cls).filter(
+                    getattr(model_cls, primary_key).in_(pk_values)
+                ).delete(synchronize_session=False)
                 session.commit()
+
         except DatabaseError as e:
             session.rollback()
             raise exception.MySQLAPIDeleteError(f"Failed to delete data from {model_cls.__name__}: {str(e)}") from e

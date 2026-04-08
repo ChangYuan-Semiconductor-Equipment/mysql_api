@@ -144,6 +144,27 @@ class MySQLDatabase:
             session.rollback()
             raise exception.MySQLAPIDeleteError(f"Failed to delete data from {model_cls.__name__}: {str(e)}") from e
 
+    def delete_data_in(self, model_cls, column_name: str, column_values: list):
+        """删除指定表里的指定列指定值的数据.
+
+        Args:
+            model_cls: 数据表模型class.
+            column_name: 指定列明.
+            column_values: 指定列的值列表.
+
+        Raises:
+            MySQLAPIDeleteError: 删除数据失败抛出异常.
+        """
+        self._check_connection()
+        try:
+            with self.session() as session:
+                query_instance = session.query(model_cls).filter(getattr(model_cls, column_name).in_(column_values))
+                query_instance.delete(synchronize_session=False)
+                session.commit()
+        except DatabaseError as e:
+            session.rollback()
+            raise exception.MySQLAPIDeleteError(f"Failed to delete data from {model_cls.__name__}: {str(e)}") from e
+
     def update_data(self, model_cls, update_values: dict, filter_dict: Optional[dict] = None):
         """更新数据表的数据.
 
